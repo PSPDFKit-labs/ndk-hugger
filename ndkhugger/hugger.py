@@ -4,9 +4,10 @@ import subprocess
 import os
 import sys
 
+from utilities import get_ndk_toolchain_path_or_fail
+
 def push_gdb_server(gdbserver_path):
-    click.echo("Pushing GDB server to device...")
-    click.echo(gdbserver_path)
+    click.secho("Pushing GDB server to device...", fg="yellow")
     subprocess.check_call(["adb", "push", gdbserver_path, "/data/local/tmp/gdbserver"])
 
 def get_pids_from_device():     
@@ -32,13 +33,13 @@ def get_pids_from_device():
 
     return pids
 
-def attach_gdb_to_process(pid):
-    click.echo("Attaching GDBserver to {}...".format(pid))
-    subprocess.Popen(['adb', 'shell', '/data/local/tmp/gdbserver', ':5055', '--attach', str(pid)], stdout=subprocess.PIPE)
+def attach_gdb_to_process(pid, port):
+    click.secho("Attaching GDBserver to {}...".format(pid), fg="yellow")
+    subprocess.Popen(['adb', 'shell', '/data/local/tmp/gdbserver', ':' + str(port), '--attach', str(pid)], stdout=subprocess.PIPE)
 
-def forward_adb_socket():
-    click.echo("Forwarding ADB socket...")
-    subprocess.Popen(['adb', 'forward', 'tcp:5055', 'tcp:5055'])
+def forward_adb_socket(port):
+    click.secho("Forwarding ADB socket...", fg="yellow")
+    subprocess.Popen(['adb', 'forward', 'tcp:' + str(port), 'tcp:' + str(port)])
 
 gdb_paths = { 'armeabi': 'arm-linux-androideabi-4.9/prebuilt/darwin-x86_64/bin/arm-linux-androideabi-gdb', \
               'x86': 'x86-4.9/prebuilt/darwin-x86_64/bin/i686-linux-android-gdb', \
@@ -51,38 +52,57 @@ gdb_paths["armeabi-v7a-hard"] = gdb_paths["armeabi"]
 @click.command()
 @click.option("--libs", default="libs")
 @click.option("--obj", default="obj")
+@click.option("--port", default=5055)
 @click.argument("package")
 @click.argument("soname")
 @click.argument("arch")
-def run(libs, obj, arch, soname, package):
-    arch = "x86"
-    package = "com.pspdfkit.pspdfcatalog"
-    toolchain_path = "/Users/jernej/Development/android-ndk/toolchains"
-    # Push GDB server binary to server
-    push_gdb_server(os.path.join(libs, arch, "gdbserver"))
+def run(libs, obj, arch, soname, package, port):
+    toolchain_path = get_ndk_toolchain_path_or_fail()
+
+    gdbserver_path = os.path.realpath(os.path.join(libs, arch, "gdbserver")) 
+    # Check for gdbserver path
+    if not os.path.exists(gdbserver_path):
+        click.secho("Could not find gdbserver binary in {}, did you forget to set --libs or NDK_DEBUG=1?".format(gdbserver_path), fg="red")
+        sys.exit(-3)
+
+    sofile_path = os.path.realpath(os.path.join(obj, "local", arch, soname))
+    if not os.path.exists(sofile_path):
+        click.secho("Could not find debuggable .so file in {}, did you forget to set --obj or wrong arch?".format(sofile_path), fg="red")
+        sys.exit(-4)        
+
+    gdb_path = os.path.join(toolchain_path, gdb_paths[arch])
+    if not os.path.exists(gdb_path):
+        click.secho("Could not find NDK gdb executable in {}, perhaps aliases have to be updated?".format(gdb_path))
+        sys.exit(-5)
 
     # Figure out what PID the process has
     pids = get_pids_from_device()
     process_pid = None
     if package in pids:
         process_pid = pids[package]
-        click.echo("Process PID for {} is {}.".format(package, process_pid))
+        click.secho("Process PID for {} is {}.".format(package, process_pid), fg="yellow")
     else:
         click.secho("Could not find PID for package {}.".format(package), fg='red')
         sys.exit(-1)
 
-    attach_gdb_to_process(process_pid)
-    forward_adb_socket()
+    click.echo("==========")
+    click.echo("[gdb] {}".format(gdb_path))
+    click.echo("[gdbserver] {}".format(gdbserver_path))
+    click.echo("[.so library] {}".format(sofile_path))
+    click.echo("[PID] {}  [Port] {}".format(process_pid, port))
+    click.echo("==========")
+
+    # Push GDB server binary to server
+    push_gdb_server(gdbserver_path)
+    attach_gdb_to_process(process_pid, port)
+    forward_adb_socket(port)
 
     # Now start GDB
-    gdb_path = os.path.join(toolchain_path, gdb_paths[arch])
-    file_command = "file {}".format(os.path.join(obj, "local", arch, soname))
+    file_command = "file {}".format(sofile_path)
+    gdb_call = "{} -ix {} -ex \"{}\" -ex \"{}\"".format(gdb_path, os.path.join(libs, arch, "gdb.setup"), file_command, "target remote :" + str(port))
 
-    click.echo("Starting GDB from {}....".format(gdb_path))
-    gdb_call = "{} -ix {} -ex \"{}\" -ex \"{}\"".format(gdb_path, os.path.join(libs, arch, "gdb.setup"), file_command, "target remote :5055")
-    click.echo("GDB call: " + gdb_call)
+    click.secho("Things look good, firing up GDB....", fg="green")
     os.system(gdb_call)
-
 
 if __name__ == "__main__":
     run()
