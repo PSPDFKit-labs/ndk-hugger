@@ -44,16 +44,22 @@ gdb_paths = { 'armeabi': 'arm-linux-androideabi-4.9/prebuilt/darwin-x86_64/bin/a
               'x86': 'x86-4.9/prebuilt/darwin-x86_64/bin/i686-linux-android-gdb', \
               'arm64-v8a': 'aarch64-linux-android-4.9/prebuilt/darwin-x86_64/bin/aarch64-linux-android-gdb'}
 
+# Add some aliases
+gdb_paths["armeabi-v7a"] = gdb_paths["armeabi"]
+gdb_paths["armeabi-v7a-hard"] = gdb_paths["armeabi"]
+
 @click.command()
-def run():
+@click.option("--libs", default="libs")
+@click.option("--obj", default="obj")
+@click.argument("package")
+@click.argument("soname")
+@click.argument("arch")
+def run(libs, obj, arch, soname, package):
     arch = "x86"
-    libs_path = "libs-debug"
-    objs_path = "objs-debug"
     package = "com.pspdfkit.pspdfcatalog"
-    library_file = "libpspdfkit.so"
     toolchain_path = "/Users/jernej/Development/android-ndk/toolchains"
     # Push GDB server binary to server
-    push_gdb_server(os.path.join(libs_path, arch, "gdbserver"))
+    push_gdb_server(os.path.join(libs, arch, "gdbserver"))
 
     # Figure out what PID the process has
     pids = get_pids_from_device()
@@ -70,10 +76,10 @@ def run():
 
     # Now start GDB
     gdb_path = os.path.join(toolchain_path, gdb_paths[arch])
-    file_command = "file {}".format(os.path.join(objs_path, "local", arch, library_file))
+    file_command = "file {}".format(os.path.join(obj, "local", arch, soname))
 
     click.echo("Starting GDB from {}....".format(gdb_path))
-    gdb_call = "{} -ix {} -ex \"{}\" -ex \"{}\"".format(gdb_path, os.path.join(libs_path, arch, "gdb.setup"), file_command, "target remote :5055")
+    gdb_call = "{} -ix {} -ex \"{}\" -ex \"{}\"".format(gdb_path, os.path.join(libs, arch, "gdb.setup"), file_command, "target remote :5055")
     click.echo("GDB call: " + gdb_call)
     os.system(gdb_call)
 
