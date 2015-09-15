@@ -10,6 +10,12 @@ def push_gdb_server(gdbserver_path):
     click.secho("Pushing GDB server to device...", fg="yellow")
     subprocess.check_call(["adb", "push", gdbserver_path, "/data/local/tmp/gdbserver"])
 
+def pull_common_libraries(target_path, libraries):
+    click.secho("Pulling common libraries from device...", fg="yellow")
+    for library in libraries:
+        library_path = os.path.join(target_path, os.path.basename(library))
+        subprocess.check_call(["adb", "pull", library, library_path])
+
 def get_pids_from_device():     
     adb_proc = subprocess.Popen(['adb', 'shell', 'ps'], stdout=subprocess.PIPE)
     pids = {}
@@ -44,6 +50,9 @@ def forward_adb_socket(port):
 gdb_paths = { 'armeabi': 'arm-linux-androideabi-4.9/prebuilt/darwin-x86_64/bin/arm-linux-androideabi-gdb', \
               'x86': 'x86-4.9/prebuilt/darwin-x86_64/bin/i686-linux-android-gdb', \
               'arm64-v8a': 'aarch64-linux-android-4.9/prebuilt/darwin-x86_64/bin/aarch64-linux-android-gdb'}
+
+# Common libraries that have to be pulled off the device for the symbolication to work
+common_libs = [ "/system/lib/libc.so", "/system/bin/linker", "/system/lib/libstdc++.so", "/system/lib/libutils.so", "/system/lib/libm.so" ]
 
 # Add some aliases
 gdb_paths["armeabi-v7a"] = gdb_paths["armeabi"]
@@ -94,6 +103,7 @@ def run(libs, obj, arch, soname, package, port):
 
     # Push GDB server binary to server
     push_gdb_server(gdbserver_path)
+    pull_common_libraries(os.path.join(obj, "local", arch), common_libs)
     attach_gdb_to_process(process_pid, port)
     forward_adb_socket(port)
 
